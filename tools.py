@@ -10,7 +10,8 @@ def FitLin(x, a, b):
   return a * x + b
 
 # Recurrent function for building le states directly for time efficiency
-def CreateCompositions(length, site_capacity, system_population, max_simultaneously_above_first_excited):
+def CreateCompositions(length, site_capacity, system_population,
+                       max_simultaneously_above_first_excited):
   if length == 1:
     if 0 <= system_population <= site_capacity:
       yield tuple(map(tuple, qt.basis(site_capacity + 1, system_population).full().T))
@@ -19,11 +20,13 @@ def CreateCompositions(length, site_capacity, system_population, max_simultaneou
   # Choose available occupancy at each entry into the function
   for chosen_value in np.arange(0, min(system_population, site_capacity) + 1):
     if ((chosen_value > 1) and (max_simultaneously_above_first_excited != 0)):
-      for tail in CreateCompositions(length - 1, site_capacity, system_population - chosen_value, max_simultaneously_above_first_excited - 1):
+      for tail in CreateCompositions(length - 1, site_capacity, system_population - chosen_value,
+                                     max_simultaneously_above_first_excited - 1):
         yield tuple(map(tuple, qt.basis(site_capacity + 1, chosen_value).full().T)) + tail
     
     elif (chosen_value <= 1):
-      for tail in CreateCompositions(length - 1, site_capacity, system_population - chosen_value, max_simultaneously_above_first_excited):
+      for tail in CreateCompositions(length - 1, site_capacity, system_population - chosen_value,
+                                     max_simultaneously_above_first_excited):
         yield tuple(map(tuple, qt.basis(site_capacity + 1, chosen_value).full().T)) + tail
     
     else:
@@ -52,7 +55,8 @@ def CreateCouplingMatrix(M, N, J0_nearest, J0_next_nearest, next_nearest=False):
 
     idx = num_sites - N * 2
     Js[idx, idx + 2] = Js[idx, idx + 5] = J0_next_nearest
-    Js[idx + 1, (idx + 1) + 2] = Js[idx + 1, (idx + 1) + 5] = Js[idx + 1, (idx + 1) + 3] = J0_next_nearest
+    Js[idx + 1, (idx + 1) + 2] = Js[idx + 1, (idx + 1) + 5] = \
+                                 Js[idx + 1, (idx + 1) + 3] = J0_next_nearest
     Js[idx + 2, (idx + 2) + 5] = Js[idx + 2, (idx + 2) + 3] = J0_next_nearest
     Js[idx + 3, (idx + 3) + 3] = J0_next_nearest
 
@@ -65,7 +69,8 @@ def CreateCouplingMatrix(M, N, J0_nearest, J0_next_nearest, next_nearest=False):
 
 def CreateConfigList(processor, experiment_config_base):
   chosen_sites = experiment_config_base['chosen_sites']
-  other_sites = [idx for idx in range(processor._num_sites) if idx not in [site for t in chosen_sites for site in t]]
+  other_sites = [idx for idx in range(processor._num_sites) if idx not in \
+                                                       [site for t in chosen_sites for site in t]]
 
   # Standard parametric modulation configuration
   # -------------------------------------------------------------------------------
@@ -94,7 +99,8 @@ def CreateConfigList(processor, experiment_config_base):
       tmp_config = cp.deepcopy(experiment_config_base)
       
       for site_idx_modul in range(len(tmp_config['site_modul_id'])):
-        tmp_config['modul_phases']["%d" % tmp_config['site_modul_id'][site_idx_modul]] = tmp_config['phi_list'][site_idx_modul][phi_idx]
+        tmp_config['modul_phases']["%d" % tmp_config['site_modul_id'][site_idx_modul]] = \
+                                       tmp_config['phi_list'][site_idx_modul][phi_idx]
 
       experiment_config_list.append(tmp_config)
     
@@ -132,17 +138,14 @@ def CreateConfigList(processor, experiment_config_base):
     experiment_config_list = []
 
     for site in [site for t in chosen_sites for site in t]:
-        # if (tmp_config['modul_freqs']["%d" % site] < 0):
-        #   tmp_config['modul_phases']["%d" % site] = -phi_dict["%d" % site]
-        # else:
-        #   tmp_config['modul_phases']["%d" % site] = phi_dict["%d" % site] THE MISTAKE IN THE ARTICLE
         experiment_config_base['modul_phases']["%d" % site] = phi_dict["%d" % site]
 
     for ef_strength in experiment_config_base['ef_strength_list']:
       tmp_config = cp.deepcopy(experiment_config_base)
 
       for site in [site for t in chosen_sites for site in t]:
-        tmp_config['modul_freqs']["%d" % site] += ef_strength * grad # just plus cuz direction of e-field due to right-to-left parametric coupling
+        # just plus cuz direction of e-field due to right-to-left parametric coupling
+        tmp_config['modul_freqs']["%d" % site] += ef_strength * grad
       
       experiment_config_list.append(tmp_config)
 
@@ -174,22 +177,8 @@ def CreateConfigList(processor, experiment_config_base):
 
     return experiment_config_list
   # -------------------------------------------------------------------------------
-
-  # Calibration verification
-  # -------------------------------------------------------------------------------
-  elif (experiment_config_base['launch_code'] == 7):
-    experiment_config_list = []
-
-    for Omega in experiment_config_base['modul_ampls_list']:
-      tmp_config = cp.deepcopy(experiment_config_base)
-      tmp_config['modul_ampls']["%d" % tmp_config['site_exc_id'][0]] = Omega
-
-      experiment_config_list.append(tmp_config)
-
-    return experiment_config_list
-  # -------------------------------------------------------------------------------
   
-  return [experiment_config_base]
+  return [experiment_config_base] # launch_code == 6
 
 
 def SetUpExperiment(processor, experiment_config_base):
@@ -197,36 +186,3 @@ def SetUpExperiment(processor, experiment_config_base):
     experiment_config_base['modul_ampls']["%d" % site] = processor._modul_ampls["%d" % site]
 
   return CreateConfigList(processor, experiment_config_base)
-
-
-  # Setting up controlled Bloch oscillations
-  # -------------------------------------------------------------------------------
-  if (experiment_config_base['launch_code'] == 3):
-    grad = processor._Js[0, 1] * (1 + 1 / 10) / 2
-    experiment_config_list = []
-    # center_site_idx = len(chosen_sites) // 2
-
-    for ef_strength in experiment_config_base['ef_strength_list']:
-      tmp_config = cp.deepcopy(experiment_config_base)
-
-      for order, idx in enumerate(range(1, len(chosen_sites), 2)):
-        tmp_config['modul_freqs']["%d" % chosen_sites[idx]] += ef_strength * grad
-
-        tmp_config['drive_ampls']["%d" % chosen_sites[idx]] = (order + 1) * tmp_config['drive_ampl_factor'] * ef_strength * grad
-        tmp_config['drive_freqs']["%d" % chosen_sites[idx]] = ef_strength * grad # in resonance with e-field to break localization
-        tmp_config['drive_phases']["%d" % chosen_sites[idx]] = 0
-
-        if idx != len(chosen_sites) - 1:
-          tmp_config['modul_freqs']["%d" % chosen_sites[idx + 1]] += ef_strength * grad
-          # print(chosen_sites[idx + 1])
-          tmp_config['drive_ampls']["%d" % chosen_sites[idx + 1]] = -(order + 1) * tmp_config['drive_ampl_factor'] * ef_strength * grad
-          tmp_config['drive_freqs']["%d" % chosen_sites[idx + 1]] = ef_strength * grad # in resonance with e-field to break localization
-          tmp_config['drive_phases']["%d" % chosen_sites[idx + 1]] = 0
-
-      experiment_config_list.append(tmp_config)
-    
-    return experiment_config_list
-  # -------------------------------------------------------------------------------
-
-
-  return [experiment_config_base]
