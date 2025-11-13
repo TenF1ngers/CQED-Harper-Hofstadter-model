@@ -9,6 +9,17 @@ def FitCos(x, a, b, c, d):
 def FitLin(x, a, b):
   return a * x + b
 
+# Josephson energy depending on flux through SQUID
+def Ej_phi(phi, Ej1, Ej2, d):
+  return (Ej1 + Ej2) * np.sqrt(np.cos(pi * phi)**2 + d**2 * np.sin(pi * phi)**2)
+
+# Omega_01 of the transmon depenging on flux through SQUID
+def Omega(phi, Ej1, Ej2, d, Ec):
+  return np.sqrt(8 * Ec * Ej_phi(phi, Ej1, Ej2, d)) - Ec
+
+def SolveOmegaForPhi(phi, omega_01, Ec, Ej1, Ej2, d):
+      return (8 * Ec * (Ej1 + Ej2)) * np.sqrt(np.cos(pi * phi)**2 + d**2 * np.sin(pi * phi)**2) - (omega_01 + Ec)**2
+
 # Recurrent function for building le states directly for time efficiency
 def CreateCompositions(length, site_capacity, system_population,
                        max_simultaneously_above_first_excited):

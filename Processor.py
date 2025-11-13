@@ -1,10 +1,10 @@
 import numpy as np
 from numpy import pi
-from scipy.optimize import curve_fit
+from scipy.optimize import curve_fit, root_scalar
 import qutip as qt
 from scipy import sparse as sp
 from joblib import Parallel, delayed
-from tools import CreateCompositions, CreateConfigList, FitCos, SetUpExperiment
+from tools import CreateCompositions, CreateConfigList, FitCos, SolveOmegaForPhi, Omega
 from Interpreter import Interpreter
 
 from matplotlib import pyplot as plt
@@ -17,24 +17,31 @@ class Processor:
     self._N = config['N'] # height of rectangular lattice
     self._num_sites = self._M * self._N # number of atoms in superconducting lattice
     self._sites_columns = config["sites_columns"] # columns of certain base frequency
-
-    self._dc_freqs = {} # base frequencies of atoms
-    for column in self._sites_columns:
-      for site in column:
-        self._dc_freqs["%d" % site] = config['dc_freqs_base']["%d" % column[0]]
-
-    self._Js = config['Js'] # upper triangular coupling matrix
-    self._J_eff = config['J_eff'] # target hopping rate between nearest neighbors
-    
-    self._anharmonicity = config['anharmonicity'] # on-site interaction
-    if (self._anharmonicity != 0):
-      print("On-site interaction is on")
-    else:
-      print("On-site interaction is off")
     self._space_trunc = config['space_trunc'] # atom Hilbert space truncation
     self._total_population = config['total_population'] # total excitations number
     # number of atoms in >= 2nd state
     self._max_simultaneously_above_first_excited = config['max_simultaneously_above_first_excited']
+
+    self._dc_freqs = {} # base frequencies of atoms
+    self._Ec = config["Ec"]
+    self._Ej1 = config["Ej1"]
+    self._Ej2 = config["Ej2"]
+    self._d = (self._Ej2 / self._Ej1 - 1) / (self._Ej2 / self._Ej1 + 1)
+    for column in self._sites_columns:
+      for site in column:
+        self._dc_freqs["%d" % site] = config['dc_freqs_base']["%d" % column[0]]
+        # self._dc_freqs["%d" % site] = config['dc_freqs_base']["%d" % site]
+    self._dc_phis = {} # base flux for each transmon
+    self.CalculateFlux()
+
+    self._Js = config['Js'] # upper triangular coupling matrix
+    self._J_eff = config['J_eff'] # target hopping rate between nearest neighbors
+    
+    self._anharmonicity = -self._Ec # on-site interaction
+    if (self._anharmonicity != 0):
+      print("On-site interaction is on")
+    else:
+      print("On-site interaction is off")
 
     self._identity_ops_array = np.array([qt.qeye(self._space_trunc).full()] * self._num_sites)
     self._low_energy_states = {} # {le (low energy) state: idx}
@@ -56,6 +63,17 @@ class Processor:
 
     self._modul_ampls = {}
     self.CalibrateModulationAmplitudes(config['modul_ampls_init'])
+
+
+  def CalculateFlux(self):
+    for column in self._sites_columns:
+      for site in column:
+        omega_01 = self._dc_freqs["%d" % site]
+
+        fun = lambda phi: SolveOmegaForPhi(phi, omega_01, self._Ec, self._Ej1, self._Ej2, self._d)
+        solution = root_scalar(fun, bracket=[-0.5, 0])
+        self._dc_phis["%d" % site] = solution.root
+
 
   # Working in the le subspace for computational efficiency
   def BuildLowEnergyStates(self):
@@ -246,7 +264,25 @@ class Processor:
     return energy_profiles
 
 
-  def BuildHamiltonianActualDevice(self, experiment_config: dict):
+  def BuildHamiltonianBoseHubbard(self, phi_list):
+    H_device = []
+
+    for i in range(self._num_sites):
+      H_device += \
+      [self._site_destroy_ops[i].dag() * self._site_destroy_ops[i] * \
+       Omega(phi_list["%d" % i], self._Ej1, self._Ej2, self._d, self._Ec),
+      self._anharmonicity / 2 * self._site_destroy_ops[i].dag() * self._site_destroy_ops[i].dag() * \
+      self._site_destroy_ops[i] * self._site_destroy_ops[i]] # anharmonicity is either zero or not
+
+      for j in range(i + 1, self._num_sites):
+        H_device += \
+        [self._Js[i, j] * (self._site_destroy_ops[i].dag() * self._site_destroy_ops[j] + \
+        self._site_destroy_ops[j].dag() * self._site_destroy_ops[i])]
+
+    return sum(H_device)
+
+
+  def BuildHamiltonianEffectiveHH(self, experiment_config: dict):
     H_device = []
     energy_profiles = self.MakeEnergyProfiles(experiment_config)
     
@@ -293,7 +329,7 @@ class Processor:
       e_ops = [self._e_ops[idx] for idx in experiment_config['site_monitor_id_list']]
     # -------------------------------------------------------------------------------
 
-    H_device = self.BuildHamiltonianActualDevice(experiment_config)
+    H_device = self.BuildHamiltonianEffectiveHH(experiment_config)
 
     result = qt.mesolve(H_device, psi0, experiment_config['operating_time_points'],
                         c_ops=[], e_ops=e_ops)
